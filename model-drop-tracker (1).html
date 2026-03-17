@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Drop Tracker</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --border: #1e2a3a;
+    --text: #e2e8f0;
+    --dim: #64748b;
+    --accent: #38bdf8;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    padding: 12px;
+    -webkit-text-size-adjust: 100%;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: var(--accent); }
+  .subhead { color: var(--dim); font-size: 11px; margin-bottom: 12px; }
+  .controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 12px; padding: 8px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .controls label { color: var(--dim); font-size: 11px; }
+  .controls select, .controls button {
+    font-family: inherit; font-size: 12px; padding: 4px 8px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .controls button { cursor: pointer; }
+  .controls button:hover { border-color: var(--accent); }
+  .controls button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .status-bar {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 12px;
+    padding: 6px 10px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 11px; flex-wrap: wrap;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    margin-right: 4px;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .dot-red { background: var(--red); }
+
+  .model-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 6px; margin-bottom: 12px;
+  }
+  .model-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px;
+  }
+  .model-card.fresh { border-color: var(--green); }
+  .model-card .model-name { font-size: 12px; font-weight: 600; color: var(--accent); }
+  .model-card .model-init { font-size: 18px; font-weight: 700; margin: 2px 0; }
+  .model-card .model-detail { font-size: 10px; color: var(--dim); }
+  .model-card .model-latency { font-size: 11px; margin-top: 2px; }
+  .lat-ok { color: var(--green); }
+  .lat-future { color: var(--purple); }
+  .lat-stale { color: var(--amber); }
+
+  .section-head {
+    font-size: 13px; color: var(--dim); margin: 12px 0 6px; cursor: pointer;
+    user-select: none;
+  }
+  .section-head:hover { color: var(--text); }
+  .log-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .log-table th {
+    text-align: left; padding: 4px 6px; color: var(--dim); font-weight: 500;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0;
+    background: var(--bg);
+  }
+  .log-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .log-table tr.new-run { color: var(--green); }
+  .log-table tr.baseline { color: var(--text); }
+  .log-table tr.error { color: var(--red); }
+  .log-scroll { max-height: 40vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+
+  .debug-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px; font-size: 10px; color: var(--dim); max-height: 30vh;
+    overflow: auto; white-space: pre-wrap; word-break: break-all;
+  }
+
+  .flash { animation: flash 1s ease-out; }
+  @keyframes flash {
+    0% { background: rgba(34,197,94,0.3); }
+    100% { background: transparent; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Model Drop Tracker v2</h1>
+<div class="subhead">Polls Wethr.net + GribStream. Logs when new model init cycles appear.</div>
+
+<div class="controls">
+  <label>Station:</label>
+  <select id="station">
+    <option value="KHOU">KHOU — Houston</option>
+    <option value="KMDW">KMDW — Chicago</option>
+    <option value="KMIA">KMIA — Miami</option>
+    <option value="KAUS">KAUS — Austin</option>
+    <option value="KDFW">KDFW — Dallas</option>
+    <option value="KOKC">KOKC — OKC</option>
+    <option value="KNYC">KNYC — NYC</option>
+    <option value="KLAX">KLAX — LA</option>
+    <option value="KDEN">KDEN — Denver</option>
+    <option value="KPHL">KPHL — Philly</option>
+    <option value="KDCA">KDCA — DC</option>
+    <option value="KLAS">KLAS — Vegas</option>
+    <option value="KSFO">KSFO — SFO</option>
+    <option value="KBOS">KBOS — Boston</option>
+    <option value="KSEA">KSEA — Seattle</option>
+    <option value="KMSY">KMSY — NOLA</option>
+    <option value="KPHX">KPHX — Phoenix</option>
+    <option value="KATL">KATL — Atlanta</option>
+    <option value="KMSP">KMSP — Minneapolis</option>
+    <option value="KSAT">KSAT — San Antonio</option>
+  </select>
+  <label>Interval:</label>
+  <select id="interval">
+    <option value="180000">3 min</option>
+    <option value="300000" selected>5 min</option>
+    <option value="600000">10 min</option>
+  </select>
+  <button id="startBtn" onclick="togglePolling()">▶ Start</button>
+  <button onclick="exportCSV()">⬇ CSV</button>
+  <button onclick="clearLog()">✕ Clear</button>
+</div>
+
+<div class="status-bar">
+  <span><span class="status-dot dot-red" id="statusDot"></span> <span id="statusText">Stopped</span></span>
+  <span style="color:var(--dim)">Polls: <span id="pollCount">0</span></span>
+  <span style="color:var(--dim)">New runs: <span id="newRunCount">0</span></span>
+  <span style="color:var(--dim)">Last: <span id="lastPoll">—</span></span>
+  <span style="color:var(--dim)">UTC: <span id="utcClock">—</span></span>
+</div>
+
+<div class="model-grid" id="modelGrid"></div>
+
+<div class="section-head" onclick="toggleSection('logWrap')">▼ Event Log</div>
+<div id="logWrap">
+  <div class="log-scroll">
+    <table class="log-table">
+      <thead>
+        <tr>
+          <th>Wall</th>
+          <th>Src</th>
+          <th>Model</th>
+          <th>Init (raw)</th>
+          <th>Prev</th>
+          <th>Latency</th>
+          <th>Type</th>
+        </tr>
+      </thead>
+      <tbody id="logBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-head" onclick="toggleSection('debugWrap')">▶ Raw API Response (debug)</div>
+<div id="debugWrap" style="display:none;">
+  <div class="debug-box" id="debugBox">Waiting for first poll...</div>
+</div>
+
+<script>
+const WETHR_PROXY = 'https://gs-proxy-2.mike-bingham1.workers.dev';
+const GS_PROXY = 'https://gribstream-proxy.mike-bingham1.workers.dev';
+
+const TZ_OFFSETS = {
+  KHOU: 6, KMDW: 6, KAUS: 6, KDFW: 6, KOKC: 6, KSAT: 6, KMSY: 6, KMSP: 6,
+  KMIA: 5, KNYC: 5, KPHL: 5, KDCA: 5, KBOS: 5, KATL: 5,
+  KDEN: 7, KPHX: 7,
+  KLAX: 8, KLAS: 8, KSFO: 8, KSEA: 8,
+};
+
+let polling = false;
+let pollTimer = null;
+let pollCount = 0;
+let newRunCount = 0;
+let knownRuns = {};
+let logEntries = [];
+let audioCtx = null;
+
+// --- Utilities ---
+function cacheBust() {
+  const d = new Date();
+  return d.getFullYear().toString() +
+    String(d.getMonth()+1).padStart(2,'0') +
+    String(d.getDate()).padStart(2,'0') +
+    String(d.getHours()).padStart(2,'0') +
+    String(d.getMinutes()).padStart(2,'0') +
+    String(d.getSeconds()).padStart(2,'0');
+}
+
+function getClimateDayWindow(station) {
+  const offset = TZ_OFFSETS[station] || 6;
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), offset, 0, 0));
+  let start, end;
+  if (now >= todayStart) {
+    start = todayStart;
+    end = new Date(todayStart.getTime() + 24*60*60*1000);
+  } else {
+    start = new Date(todayStart.getTime() - 24*60*60*1000);
+    end = todayStart;
+  }
+  return {
+    start: start.toISOString().replace('.000Z','Z'),
+    end: end.toISOString().replace('.000Z','Z'),
+    date: start.toISOString().split('T')[0],
+  };
+}
+
+function fmtWall(d) {
+  if (!d) d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' +
+    String(d.getMinutes()).padStart(2,'0') + ':' +
+    String(d.getSeconds()).padStart(2,'0');
+}
+
+function fmtUTC(d) {
+  if (!d) d = new Date();
+  return String(d.getUTCHours()).padStart(2,'0') + ':' +
+    String(d.getUTCMinutes()).padStart(2,'0') + 'Z';
+}
+
+// Parse run_time into Date — NO adjustment for future times
+function parseRunTime(raw) {
+  if (!raw) return null;
+  let d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  // Try bare time
+  const today = new Date().toISOString().split('T')[0];
+  d = new Date(today + 'T' + raw);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+// Latency with future-time handling
+function latencyInfo(rawRunTime) {
+  const date = parseRunTime(rawRunTime);
+  if (!date) return { text: '—', cls: '' };
+  
+  const now = new Date();
+  const diffMin = Math.round((now - date) / 60000);
+  
+  if (diffMin < -5) {
+    // Future init — Wethr convention, not real latency
+    const futMin = Math.abs(diffMin);
+    if (futMin < 60) return { text: 'future +' + futMin + 'm', cls: 'lat-future' };
+    const h = Math.floor(futMin / 60);
+    return { text: 'future +' + h + 'h' + (futMin%60 > 0 ? futMin%60 + 'm' : ''), cls: 'lat-future' };
+  }
+  if (diffMin <= 0) return { text: 'just now', cls: 'lat-ok' };
+  if (diffMin < 60) return { text: diffMin + 'm', cls: 'lat-ok' };
+  
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  const str = h + 'h' + (m > 0 ? m + 'm' : '');
+  return { text: str, cls: h >= 4 ? 'lat-stale' : 'lat-ok' };
+}
+
+function initDisplayStr(rawRunTime) {
+  const d = parseRunTime(rawRunTime);
+  if (!d) return String(rawRunTime);
+  return String(d.getUTCHours()).padStart(2,'0') + ':' +
+    String(d.getUTCMinutes()).padStart(2,'0') + 'Z';
+}
+
+// --- Wethr.net Fetch ---
+async function fetchWethrModels(station) {
+  const win = getClimateDayWindow(station);
+  const cb = cacheBust();
+  const url = `${WETHR_PROXY}/wethr/forecasts.php?location_name=${station}&start_valid_time=${win.start}&end_valid_time=${win.end}&nocache=${cb}01`;
+  
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) return { source: 'wethr', error: 'HTTP ' + resp.status, models: {} };
+    const data = await resp.json();
+    
+    const debugSamples = {};
+    const models = {};
+    
+    if (Array.isArray(data)) {
+      for (const rec of data) {
+        const model = rec.model || rec.model_name || rec.source || 'unknown';
+        
+        // Debug: save first 2 raw records per model
+        if (!debugSamples[model]) debugSamples[model] = [];
+        if (debugSamples[model].length < 2) {
+          // Grab ALL fields from the record to see what Wethr returns
+          const sample = {};
+          for (const k of Object.keys(rec)) {
+            sample[k] = rec[k];
+          }
+          debugSamples[model].push(sample);
+        }
+        
+        const runTime = rec.run_time || rec.init_time || rec.forecasted_at || null;
+        if (!runTime) continue;
+        
+        const raw = String(runTime);
+        if (!models[model] || raw > (models[model]._raw || '')) {
+          models[model] = {
+            run_time: raw,
+            _raw: raw,
+            model: model,
+            peak_temp: rec.temperature || rec.temp_f || null,
+          };
+        }
+      }
+    }
+    
+    // Update debug
+    document.getElementById('debugBox').textContent = JSON.stringify({
+      polled_at: new Date().toISOString(),
+      url: url.replace(/nocache=\d+/, 'nocache=...'),
+      total_records: Array.isArray(data) ? data.length : '?',
+      models_found: Object.keys(models),
+      samples: debugSamples,
+    }, null, 2);
+    
+    return { source: 'wethr', models };
+  } catch (e) {
+    return { source: 'wethr', error: e.message, models: {} };
+  }
+}
+
+// --- GribStream RRFS Fetch ---
+async function fetchGSRrfs(station) {
+  const win = getClimateDayWindow(station);
+  const cb = cacheBust();
+  const url = `${GS_PROXY}/gribstream/rrfs?station_code=${station}&date=${win.date}&nocache=${cb}02`;
+  
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) return { source: 'gribstream', error: 'HTTP ' + resp.status, models: {} };
+    const data = await resp.json();
+    
+    let latestInit = null;
+    if (data.hourly && Array.isArray(data.hourly)) {
+      for (const h of data.hourly) {
+        const ft = h.forecast_time || h.forecasted_at;
+        if (ft && (!latestInit || ft > latestInit)) latestInit = ft;
+      }
+    }
+    return {
+      source: 'gribstream',
+      models: latestInit ? {
+        'RRFS': { run_time: String(latestInit), model: 'RRFS', peak_temp: data.peak_temp_f }
+      } : {}
+    };
+  } catch (e) {
+    return { source: 'gribstream', error: e.message, models: {} };
+  }
+}
+
+// --- Process ---
+function processPollResults(results) {
+  const wallStr = fmtWall();
+  let anyNew = false;
+
+  for (const result of results) {
+    if (result.error) {
+      addLogEntry(wallStr, result.source || '?', '—', '—', '—', '—', 'ERR: ' + result.error);
+    }
+    if (!result.models) continue;
+    
+    for (const [modelName, info] of Object.entries(result.models)) {
+      const key = result.source + ':' + modelName;
+      const prev = knownRuns[key];
+      const curr = info.run_time;
+
+      if (prev !== curr) {
+        knownRuns[key] = curr;
+        const lat = latencyInfo(curr);
+        if (prev) {
+          addLogEntry(wallStr, result.source, modelName, curr, prev, lat.text, 'NEW RUN');
+          anyNew = true;
+          newRunCount++;
+        } else {
+          addLogEntry(wallStr, result.source, modelName, curr, '—', lat.text, 'baseline');
+        }
+      }
+      updateModelCard(result.source, modelName, curr, info.peak_temp);
+    }
+  }
+
+  if (anyNew) {
+    document.getElementById('newRunCount').textContent = newRunCount;
+    beep();
+  }
+}
+
+// --- UI ---
+function updateModelCard(source, model, rawRunTime, peakTemp) {
+  const id = ('card-' + source + '-' + model).replace(/[^a-zA-Z0-9-]/g, '_');
+  let card = document.getElementById(id);
+  const initStr = initDisplayStr(rawRunTime);
+  const lat = latencyInfo(rawRunTime);
+  const wasFresh = card && card.dataset.raw !== rawRunTime;
+
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'model-card';
+    card.id = id;
+    document.getElementById('modelGrid').appendChild(card);
+  }
+  card.dataset.raw = rawRunTime;
+  card.innerHTML =
+    '<div class="model-name">' + model + ' <span style="color:var(--dim);font-size:10px">(' + source + ')</span></div>' +
+    '<div class="model-init">' + initStr + '</div>' +
+    '<div class="model-latency ' + lat.cls + '">' + lat.text + '</div>' +
+    (peakTemp ? '<div class="model-detail">Peak: ' + peakTemp + '°F</div>' : '') +
+    '<div class="model-detail" style="margin-top:2px">raw: ' + rawRunTime + '</div>' +
+    '<div class="model-detail">seen: ' + fmtWall() + '</div>';
+  if (wasFresh) {
+    card.classList.add('fresh', 'flash');
+    setTimeout(function(){ card.classList.remove('flash'); }, 1200);
+  }
+}
+
+function addLogEntry(wall, source, model, init, prev, latency, type) {
+  const entry = { wall: wall, source: source, model: model, init: init, prev: prev, latency: latency, type: type };
+  logEntries.unshift(entry);
+  
+  const tbody = document.getElementById('logBody');
+  const tr = document.createElement('tr');
+  tr.className = type.indexOf('NEW') >= 0 ? 'new-run' : type === 'baseline' ? 'baseline' : type.indexOf('ERR') >= 0 ? 'error' : '';
+  tr.innerHTML = '<td>' + wall + '</td><td>' + source + '</td><td>' + model + '</td><td>' + init + '</td><td>' + prev + '</td><td>' + latency + '</td><td>' + type + '</td>';
+  tbody.insertBefore(tr, tbody.firstChild);
+  while (tbody.children.length > 500) tbody.removeChild(tbody.lastChild);
+}
+
+function toggleSection(id) {
+  var el = document.getElementById(id);
+  var head = el.previousElementSibling;
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    head.textContent = head.textContent.replace('▶', '▼');
+  } else {
+    el.style.display = 'none';
+    head.textContent = head.textContent.replace('▼', '▶');
+  }
+}
+
+// UTC clock
+setInterval(function(){ document.getElementById('utcClock').textContent = fmtUTC(); }, 1000);
+
+// --- Polling ---
+async function poll() {
+  var station = document.getElementById('station').value;
+  pollCount++;
+  document.getElementById('pollCount').textContent = pollCount;
+  document.getElementById('lastPoll').textContent = fmtWall();
+
+  var results = await Promise.allSettled([
+    fetchWethrModels(station),
+    fetchGSRrfs(station),
+  ]);
+
+  var resolved = results.map(function(r) {
+    return r.status === 'fulfilled' ? r.value : { source: '?', error: (r.reason && r.reason.message) || 'failed', models: {} };
+  });
+  processPollResults(resolved);
+}
+
+function togglePolling() {
+  var btn = document.getElementById('startBtn');
+  if (polling) {
+    polling = false;
+    clearInterval(pollTimer);
+    pollTimer = null;
+    btn.textContent = '▶ Start';
+    btn.classList.remove('active');
+    document.getElementById('statusDot').className = 'status-dot dot-red';
+    document.getElementById('statusText').textContent = 'Stopped';
+  } else {
+    polling = true;
+    btn.textContent = '⏸ Stop';
+    btn.classList.add('active');
+    document.getElementById('statusDot').className = 'status-dot dot-green';
+    document.getElementById('statusText').textContent = 'Polling';
+    initKeepAlive();
+    poll();
+    var interval = parseInt(document.getElementById('interval').value);
+    pollTimer = setInterval(poll, interval);
+  }
+}
+
+// --- Keep-Alive ---
+function initKeepAlive() {
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      gain.gain.value = 0.001;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+    } catch(e) {}
+  }
+}
+
+// --- Beep ---
+function beep() {
+  if (!audioCtx) return;
+  try {
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+// --- Export ---
+function exportCSV() {
+  var header = 'wall_clock,source,model,init_raw,prev_raw,latency,type\n';
+  var rows = logEntries.map(function(e) {
+    return e.wall + ',' + e.source + ',' + e.model + ',"' + e.init + '","' + e.prev + '",' + e.latency + ',' + e.type;
+  }).join('\n');
+  var blob = new Blob([header + rows], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'model-drops-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+function clearLog() {
+  if (!confirm('Clear all log entries?')) return;
+  logEntries = [];
+  knownRuns = {};
+  pollCount = 0;
+  newRunCount = 0;
+  document.getElementById('logBody').innerHTML = '';
+  document.getElementById('modelGrid').innerHTML = '';
+  document.getElementById('pollCount').textContent = '0';
+  document.getElementById('newRunCount').textContent = '0';
+  document.getElementById('debugBox').textContent = 'Cleared.';
+}
+</script>
+</body>
+</html>
